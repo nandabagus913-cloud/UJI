@@ -38,8 +38,17 @@
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
         }
-        #reader { border: none !important; border-radius: 24px; overflow: hidden; }
-        #reader video { object-fit: cover !important; }
+        /* Perbaikan agar video scanner tidak pecah dan responsif */
+        #reader { 
+            border: none !important; 
+            border-radius: 24px; 
+            overflow: hidden; 
+            background: #000;
+        }
+        #reader video { 
+            object-fit: cover !important; 
+            border-radius: 24px;
+        }
         .tab-content { display: none; animation: fadeIn 0.3s ease-out; }
         .tab-content.active { display: block; }
         @keyframes fadeIn {
@@ -64,7 +73,6 @@
             100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
-        /* Styling QR HD agar tetap rapi di UI */
         .qr-container canvas, .qr-container img {
             max-width: 180px !important;
             height: auto !important;
@@ -85,7 +93,8 @@
                     <div class="flex items-center gap-2 mb-1">
                         <span class="bg-white text-indigo-600 text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-tighter">PE2024</span>
                         <p id="sync-status" class="flex items-center text-[10px] font-bold text-indigo-200 uppercase tracking-widest">
-                            <span class="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 pulse-green"></span> Online
+                            <span id="status-dot" class="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 pulse-green"></span> 
+                            <span id="status-text">Online</span>
                         </p>
                     </div>
                     <h1 id="page-title" class="text-xl font-extrabold tracking-tight">Beranda</h1>
@@ -126,13 +135,11 @@
                         </div>
                     </div>
                     
-                    <!-- Scanner Box -->
-                    <div id="scanner-wrapper" class="rounded-[24px] bg-slate-50 border-2 border-dashed border-slate-200 overflow-hidden relative">
-                        <div id="reader" style="width: 100%;"></div>
+                    <div id="scanner-wrapper" class="rounded-[24px] bg-slate-900 overflow-hidden relative shadow-inner">
+                        <div id="reader"></div>
                     </div>
 
-                    <!-- Notifikasi Hasil Scan -->
-                    <div id="result-message" class="hidden mt-4 p-4 rounded-2xl text-center animate-bounce"></div>
+                    <div id="result-message" class="hidden mt-4 p-4 rounded-2xl text-center"></div>
                 </div>
             </section>
 
@@ -166,7 +173,7 @@
                 <div id="recap-list" class="space-y-3"></div>
             </section>
 
-            <!-- TAB 4: LIBUR -->
+            <!-- TAB 4: PENGATURAN -->
             <section id="tab-settings" class="tab-content">
                 <div class="mt-6 bg-rose-50 rounded-[32px] p-6 border border-rose-100 mb-6">
                     <h3 class="text-lg font-bold text-rose-900 mb-2">Atur Rentang Libur</h3>
@@ -179,7 +186,6 @@
                         <button type="submit" class="w-full bg-rose-500 text-white font-bold py-4 rounded-2xl btn-press">Simpan Libur</button>
                     </form>
                 </div>
-                <div id="holiday-list" class="space-y-3"></div>
             </section>
         </main>
 
@@ -209,10 +215,19 @@
     <script>
         const scriptURL = 'https://script.google.com/macros/s/AKfycbzpN3hB-bRpAhNXgqqg6J29sKeeDvsAHucOiW9h1cI4keCI_Jes4bI6A-NsvrL-fptWbQ/exec';
         let students = [];
+        let html5QrCode = null;
         let isScannerRunning = false;
-        const html5QrCode = new Html5Qrcode("reader");
 
-        // Fungsi Ganti Tab
+        // Inisialisasi awal
+        window.addEventListener('DOMContentLoaded', () => {
+            updateClock();
+            fetchDataFromSheets();
+            // Berikan jeda 1 detik agar browser siap mengakses kamera
+            setTimeout(() => {
+                startScanner();
+            }, 1000);
+        });
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -225,7 +240,6 @@
             if (tabId === 'home') startScanner(); else stopScanner();
         }
 
-        // Jam Digital
         function updateClock() {
             const now = new Date();
             document.getElementById('live-clock').textContent = now.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', hour12:false });
@@ -233,10 +247,19 @@
         }
         setInterval(updateClock, 1000);
 
-        // Scanner Logic
         async function startScanner() {
             if (isScannerRunning) return;
-            const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+            
+            // Re-instansiasi setiap kali start untuk menghindari bug state library
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+
+            const config = { 
+                fps: 20, // Menaikkan FPS untuk respon lebih cepat
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0
+            };
             
             try {
                 await html5QrCode.start(
@@ -249,70 +272,86 @@
                 isScannerRunning = true;
                 document.getElementById('camera-indicator').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 pulse-green"></span> Kamera Aktif`;
             } catch (err) {
-                console.error("Gagal memulai kamera: ", err);
+                console.error("Kamera Gagal:", err);
+                document.getElementById('camera-indicator').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span> Kamera Error`;
+                showFeedback("Gagal akses kamera. Pastikan izin diaktifkan!", "error");
             }
         }
 
         async function stopScanner() {
-            if (isScannerRunning) {
-                await html5QrCode.stop();
-                isScannerRunning = false;
-                document.getElementById('camera-indicator').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span> Kamera Standby`;
+            if (isScannerRunning && html5QrCode) {
+                try {
+                    await html5QrCode.stop();
+                    isScannerRunning = false;
+                    document.getElementById('camera-indicator').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span> Kamera Standby`;
+                } catch (e) {
+                    console.warn("Stop scanner warning:", e);
+                }
             }
         }
 
-        // Handle Hasil Scan
         function handleScanSuccess(text) {
             const parts = text.split('-');
-            // Format QR: ABSEN-NIM-NAMA
             if (parts[0] === "ABSEN" && parts.length >= 3) {
                 const nim = parts[1];
                 const nama = parts[2];
                 updateAttendanceInSheets(nim, 'hadir', nama);
-                stopScanner(); // Berhenti sejenak untuk feedback
+                
+                // Matikan scanner agar tidak double scan saat proses
+                stopScanner();
+                
+                // Getaran (vibrate) jika didukung perangkat
+                if (navigator.vibrate) navigator.vibrate(100);
             } else {
-                showFeedback("Format QR Salah!", "error");
+                showFeedback("QR Code Tidak Dikenali!", "error");
             }
         }
 
-        // Update ke Google Sheets
         async function updateAttendanceInSheets(nim, type, nama) {
-            showFeedback(`Memproses Absensi: ${nama}...`, "loading");
+            showFeedback(`Memproses: ${nama}...`, "loading");
             
             try {
-                const response = await fetch(scriptURL, {
+                // Gunakan timestamp untuk menghindari caching browser
+                const postUrl = `${scriptURL}?t=${Date.now()}`;
+                
+                await fetch(postUrl, {
                     method: 'POST',
                     mode: 'no-cors',
                     body: JSON.stringify({ action: 'update', nim, type })
                 });
 
-                // Tampilkan Pesan Berhasil dengan Nama dan NIM
-                showFeedback(`BERHASIL!<br><span class="text-lg">${nama}</span><br><span class="opacity-80">${nim}</span>`, "success");
+                // Pesan Sukses Lengkap
+                showFeedback(`
+                    <div class="flex flex-col items-center gap-1">
+                        <i class="fas fa-check-circle text-2xl mb-1"></i>
+                        <span class="text-lg font-black leading-tight">ABSENSI BERHASIL</span>
+                        <span class="text-sm font-medium opacity-90">${nama}</span>
+                        <span class="text-[10px] tracking-widest opacity-70">${nim}</span>
+                    </div>
+                `, "success");
                 
-                fetchDataFromSheets(); // Refresh data rekap
+                fetchDataFromSheets();
                 
-                // Nyalakan kembali scanner setelah 3 detik
+                // Kembali scan otomatis setelah 3 detik
                 setTimeout(() => {
                     document.getElementById('result-message').classList.add('hidden');
                     startScanner();
                 }, 3000);
 
             } catch (e) {
-                showFeedback("Gagal menghubungkan ke server!", "error");
+                showFeedback("Gagal Sinkronisasi!", "error");
                 setTimeout(startScanner, 2000);
             }
         }
 
-        // Fungsi Tampilkan Pesan (Feedback)
         function showFeedback(message, status) {
             const msgBox = document.getElementById('result-message');
-            msgBox.classList.remove('hidden', 'bg-indigo-50', 'text-indigo-600', 'bg-emerald-500', 'text-white', 'bg-rose-500');
+            msgBox.classList.remove('hidden', 'bg-indigo-600', 'bg-emerald-500', 'bg-rose-500', 'text-white', 'text-indigo-600', 'bg-indigo-50');
             
             if (status === "loading") {
-                msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-indigo-50 text-indigo-600 block text-xs font-bold";
+                msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-indigo-50 text-indigo-600 block text-xs font-bold animate-pulse";
             } else if (status === "success") {
-                msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-emerald-500 text-white block font-bold shadow-lg shadow-emerald-200";
-                // Mainkan suara sukses jika perlu
+                msgBox.className = "mt-4 p-5 rounded-3xl text-center bg-emerald-500 text-white block shadow-xl animate-bounce";
             } else {
                 msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-rose-500 text-white block font-bold";
             }
@@ -320,7 +359,6 @@
             msgBox.innerHTML = message;
         }
 
-        // Registrasi Mahasiswa Baru
         document.getElementById('form-single').onsubmit = async (e) => {
             e.preventDefault();
             const nim = document.getElementById('single-nim').value;
@@ -341,7 +379,6 @@
                     </button>`;
                 document.getElementById('qr-results-list').prepend(card);
                 
-                // Buat QR Code Kualitas HD (1000px)
                 new QRCode(document.getElementById(id), {
                     text: `ABSEN-${nim}-${nama}`,
                     width: 1000, 
@@ -353,32 +390,34 @@
                 
                 e.target.reset();
                 fetchDataFromSheets();
-            } catch (err) {
-                alert("Gagal registrasi!");
-            }
+            } catch (err) { alert("Gagal registrasi!"); }
         };
 
-        // Download QR HD
         function downloadQR(id, nim) {
             const container = document.getElementById(id);
             const canvas = container.querySelector('canvas');
-            const dataUrl = canvas.toDataURL("image/png");
-            
-            const a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = `QR_ABSEN_${nim}.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            if (canvas) {
+                const dataUrl = canvas.toDataURL("image/png");
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = `QR_ABSEN_${nim}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
         }
 
-        // Fetch Data Rekap
         async function fetchDataFromSheets() {
             try {
                 const res = await fetch(scriptURL + '?action=read');
                 students = await res.json();
                 renderRecap();
-            } catch (e) { console.error("Gagal mengambil data"); }
+                document.getElementById('status-text').textContent = "Online";
+                document.getElementById('status-dot').className = "inline-block w-2 h-2 rounded-full bg-green-400 mr-2 pulse-green";
+            } catch (e) { 
+                document.getElementById('status-text').textContent = "Offline";
+                document.getElementById('status-dot').className = "inline-block w-2 h-2 rounded-full bg-red-400 mr-2";
+            }
         }
 
         function renderRecap() {
@@ -398,13 +437,6 @@
                 list.appendChild(card);
             });
         }
-
-        // Inisialisasi
-        window.onload = () => { 
-            updateClock(); 
-            fetchDataFromSheets(); 
-            startScanner(); // Default buka scanner
-        };
     </script>
 </body>
 </html>
