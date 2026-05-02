@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AbsenKita - Presensi PE2024</title>
+    <!-- Library Eksternal -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #6366f1;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+        }
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg);
+            -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
+        }
+        .mobile-container {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            position: relative;
+            background: var(--bg);
+        }
+        .nav-blur {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        #reader { border: none !important; border-radius: 24px; overflow: hidden; }
+        #reader video { object-fit: cover !important; }
+        .tab-content { display: none; animation: fadeIn 0.3s ease-out; }
+        .tab-content.active { display: block; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .nav-item { transition: all 0.2s ease; position: relative; color: #94a3b8; }
+        .nav-item.active { color: var(--primary); }
+        .nav-item.active i { transform: translateY(-4px); }
+        .nav-item.active::after {
+            content: ''; position: absolute; bottom: -8px; width: 4px; height: 4px;
+            background: var(--primary); border-radius: 50%;
+        }
+        .btn-press:active { transform: scale(0.95); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .pulse-green {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* Styling QR HD agar tetap rapi di UI */
+        .qr-container canvas, .qr-container img {
+            max-width: 180px !important;
+            height: auto !important;
+            margin: 0 auto;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="mobile-container flex flex-col">
+        
+        <!-- Header -->
+        <header class="pt-5 px-6 pb-4 bg-indigo-600 border-b border-indigo-500 sticky top-0 z-50 text-white">
+            <div class="flex justify-between items-start">
+                <div class="flex flex-col">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="bg-white text-indigo-600 text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-tighter">PE2024</span>
+                        <p id="sync-status" class="flex items-center text-[10px] font-bold text-indigo-200 uppercase tracking-widest">
+                            <span class="inline-block w-2 h-2 rounded-full bg-green-400 mr-2 pulse-green"></span> Online
+                        </p>
+                    </div>
+                    <h1 id="page-title" class="text-xl font-extrabold tracking-tight">Beranda</h1>
+                </div>
+                <div class="flex space-x-2.5">
+                    <button onclick="fetchDataFromSheets()" class="w-11 h-11 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-white btn-press">
+                        <i class="fas fa-sync-alt text-sm"></i>
+                    </button>
+                    <div class="w-11 h-11 rounded-2xl bg-white shadow-lg flex items-center justify-center text-indigo-600">
+                        <i class="fas fa-user-shield text-sm"></i>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 px-6 pb-32 overflow-y-auto no-scrollbar">
+            
+            <!-- TAB 1: SCANNER -->
+            <section id="tab-home" class="tab-content active">
+                <div class="mt-6 bg-indigo-600 rounded-[32px] p-6 text-white mb-6 shadow-xl relative overflow-hidden">
+                    <div class="relative z-10">
+                        <span class="text-indigo-200 text-xs font-semibold uppercase tracking-wider">Sesi Hari Ini</span>
+                        <h2 class="text-3xl font-bold mt-1" id="live-clock">00:00</h2>
+                        <div class="mt-4 inline-flex items-center bg-white/20 backdrop-blur-md px-3 py-1.5 rounded-full text-xs">
+                            <i class="fas fa-calendar-day mr-2"></i>
+                            <span id="current-date">...</span>
+                        </div>
+                    </div>
+                    <i class="fas fa-bolt absolute -right-4 -bottom-4 text-white/10 text-9xl"></i>
+                </div>
+
+                <div class="bg-white rounded-[32px] p-5 shadow-sm border border-slate-100">
+                    <div class="flex items-center justify-between mb-4 px-1">
+                        <h3 class="font-bold text-slate-800">Pemindai QR</h3>
+                        <div id="camera-indicator" class="flex items-center text-slate-400 text-[10px] font-bold uppercase tracking-tighter">
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span> Kamera Standby
+                        </div>
+                    </div>
+                    
+                    <!-- Scanner Box -->
+                    <div id="scanner-wrapper" class="rounded-[24px] bg-slate-50 border-2 border-dashed border-slate-200 overflow-hidden relative">
+                        <div id="reader" style="width: 100%;"></div>
+                    </div>
+
+                    <!-- Notifikasi Hasil Scan -->
+                    <div id="result-message" class="hidden mt-4 p-4 rounded-2xl text-center animate-bounce"></div>
+                </div>
+            </section>
+
+            <!-- TAB 2: REGISTER -->
+            <section id="tab-register" class="tab-content">
+                <div class="mt-3 bg-white rounded-[32px] p-4 shadow-sm border border-slate-100 mb-6">
+                    <h3 class="text-lg font-bold text-slate-900 mb-4">Mahasiswa Baru</h3>
+                    <form id="form-single" class="space-y-4">
+                        <div class="relative">
+                            <i class="fas fa-id-card absolute left-4 top-4 text-slate-400 text-sm"></i>
+                            <input type="number" id="single-nim" placeholder="Nomor Induk Mahasiswa" class="w-full pl-12 pr-4 py-4 rounded-2xl bg-slate-50 border-none outline-none text-sm font-medium focus:ring-2 focus:ring-indigo-500" required>
+                        </div>
+                        <div class="relative">
+                            <i class="fas fa-user-edit absolute left-4 top-4 text-slate-400 text-sm"></i>
+                            <input type="text" id="single-nama" placeholder="Nama Lengkap" class="w-full pl-12 pr-4 py-4 rounded-2xl bg-slate-50 border-none outline-none text-sm font-medium focus:ring-2 focus:ring-indigo-500" required>
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg btn-press">Simpan Mahasiswa</button>
+                    </form>
+                </div>
+                <div id="qr-results-list" class="grid grid-cols-1 gap-4"></div>
+            </section>
+
+            <!-- TAB 3: REKAP -->
+            <section id="tab-recap" class="tab-content">
+                <div class="mt-6 flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-bold text-slate-900">Database Kelas</h3>
+                    <button onclick="exportToExcel()" class="bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold btn-press">
+                        <i class="fas fa-file-excel mr-1"></i> EXCEL
+                    </button>
+                </div>
+                <div id="recap-list" class="space-y-3"></div>
+            </section>
+
+            <!-- TAB 4: LIBUR -->
+            <section id="tab-settings" class="tab-content">
+                <div class="mt-6 bg-rose-50 rounded-[32px] p-6 border border-rose-100 mb-6">
+                    <h3 class="text-lg font-bold text-rose-900 mb-2">Atur Rentang Libur</h3>
+                    <form id="form-holiday" class="space-y-3">
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="date" id="holiday-start" class="w-full p-4 rounded-2xl bg-white text-sm outline-none" required>
+                            <input type="date" id="holiday-end" class="w-full p-4 rounded-2xl bg-white text-sm outline-none" required>
+                        </div>
+                        <input type="text" id="holiday-desc" placeholder="Keterangan Libur" class="w-full p-4 rounded-2xl bg-white text-sm outline-none" required>
+                        <button type="submit" class="w-full bg-rose-500 text-white font-bold py-4 rounded-2xl btn-press">Simpan Libur</button>
+                    </form>
+                </div>
+                <div id="holiday-list" class="space-y-3"></div>
+            </section>
+        </main>
+
+        <!-- Navigation Bar -->
+        <nav class="fixed bottom-0 left-0 right-0 nav-blur border-t border-slate-100 px-8 py-4 z-50">
+            <div class="max-w-md mx-auto flex justify-between items-center">
+                <button onclick="switchTab('home')" id="nav-home" class="nav-item active flex flex-col items-center">
+                    <i class="fas fa-th-large text-xl"></i>
+                    <span class="text-[9px] font-bold mt-1.5 uppercase">Home</span>
+                </button>
+                <button onclick="switchTab('register')" id="nav-register" class="nav-item flex flex-col items-center">
+                    <i class="fas fa-user-plus text-xl"></i>
+                    <span class="text-[9px] font-bold mt-1.5 uppercase">Daftar</span>
+                </button>
+                <button onclick="switchTab('recap')" id="nav-recap" class="nav-item flex flex-col items-center">
+                    <i class="fas fa-chart-pie text-xl"></i>
+                    <span class="text-[9px] font-bold mt-1.5 uppercase">Rekap</span>
+                </button>
+                <button onclick="switchTab('settings')" id="nav-settings" class="nav-item flex flex-col items-center">
+                    <i class="fas fa-calendar-alt text-xl"></i>
+                    <span class="text-[9px] font-bold mt-1.5 uppercase">Libur</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <script>
+        const scriptURL = 'https://script.google.com/macros/s/AKfycbzpN3hB-bRpAhNXgqqg6J29sKeeDvsAHucOiW9h1cI4keCI_Jes4bI6A-NsvrL-fptWbQ/exec';
+        let students = [];
+        let isScannerRunning = false;
+        const html5QrCode = new Html5Qrcode("reader");
+
+        // Fungsi Ganti Tab
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.getElementById('nav-' + tabId).classList.add('active');
+            document.getElementById('page-title').textContent = { 
+                home:'Beranda', register:'Registrasi', recap:'Rekap Presensi', settings:'Pengaturan' 
+            }[tabId];
+            
+            if (tabId === 'home') startScanner(); else stopScanner();
+        }
+
+        // Jam Digital
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('live-clock').textContent = now.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', hour12:false });
+            document.getElementById('current-date').textContent = now.toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'short', year:'numeric' });
+        }
+        setInterval(updateClock, 1000);
+
+        // Scanner Logic
+        async function startScanner() {
+            if (isScannerRunning) return;
+            const config = { fps: 15, qrbox: { width: 250, height: 250 } };
+            
+            try {
+                await html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config, 
+                    (decodedText) => {
+                        handleScanSuccess(decodedText);
+                    }
+                );
+                isScannerRunning = true;
+                document.getElementById('camera-indicator').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5 pulse-green"></span> Kamera Aktif`;
+            } catch (err) {
+                console.error("Gagal memulai kamera: ", err);
+            }
+        }
+
+        async function stopScanner() {
+            if (isScannerRunning) {
+                await html5QrCode.stop();
+                isScannerRunning = false;
+                document.getElementById('camera-indicator').innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1.5"></span> Kamera Standby`;
+            }
+        }
+
+        // Handle Hasil Scan
+        function handleScanSuccess(text) {
+            const parts = text.split('-');
+            // Format QR: ABSEN-NIM-NAMA
+            if (parts[0] === "ABSEN" && parts.length >= 3) {
+                const nim = parts[1];
+                const nama = parts[2];
+                updateAttendanceInSheets(nim, 'hadir', nama);
+                stopScanner(); // Berhenti sejenak untuk feedback
+            } else {
+                showFeedback("Format QR Salah!", "error");
+            }
+        }
+
+        // Update ke Google Sheets
+        async function updateAttendanceInSheets(nim, type, nama) {
+            showFeedback(`Memproses Absensi: ${nama}...`, "loading");
+            
+            try {
+                const response = await fetch(scriptURL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    body: JSON.stringify({ action: 'update', nim, type })
+                });
+
+                // Tampilkan Pesan Berhasil dengan Nama dan NIM
+                showFeedback(`BERHASIL!<br><span class="text-lg">${nama}</span><br><span class="opacity-80">${nim}</span>`, "success");
+                
+                fetchDataFromSheets(); // Refresh data rekap
+                
+                // Nyalakan kembali scanner setelah 3 detik
+                setTimeout(() => {
+                    document.getElementById('result-message').classList.add('hidden');
+                    startScanner();
+                }, 3000);
+
+            } catch (e) {
+                showFeedback("Gagal menghubungkan ke server!", "error");
+                setTimeout(startScanner, 2000);
+            }
+        }
+
+        // Fungsi Tampilkan Pesan (Feedback)
+        function showFeedback(message, status) {
+            const msgBox = document.getElementById('result-message');
+            msgBox.classList.remove('hidden', 'bg-indigo-50', 'text-indigo-600', 'bg-emerald-500', 'text-white', 'bg-rose-500');
+            
+            if (status === "loading") {
+                msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-indigo-50 text-indigo-600 block text-xs font-bold";
+            } else if (status === "success") {
+                msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-emerald-500 text-white block font-bold shadow-lg shadow-emerald-200";
+                // Mainkan suara sukses jika perlu
+            } else {
+                msgBox.className = "mt-4 p-4 rounded-2xl text-center bg-rose-500 text-white block font-bold";
+            }
+            
+            msgBox.innerHTML = message;
+        }
+
+        // Registrasi Mahasiswa Baru
+        document.getElementById('form-single').onsubmit = async (e) => {
+            e.preventDefault();
+            const nim = document.getElementById('single-nim').value;
+            const nama = document.getElementById('single-nama').value;
+            
+            try {
+                await fetch(scriptURL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ action: 'register', nim, nama }) });
+                
+                const id = 'qr-' + nim;
+                const card = document.createElement('div');
+                card.className = "bg-white p-6 rounded-[32px] border border-slate-100 text-center mb-4 shadow-sm";
+                card.innerHTML = `
+                    <div id="${id}" class="qr-container flex justify-center mb-4"></div>
+                    <h4 class="font-bold text-slate-800 text-base">${nama}</h4>
+                    <p class="text-[10px] text-slate-400 mb-4 tracking-widest font-bold">${nim}</p>
+                    <button onclick="downloadQR('${id}', '${nim}')" class="w-full bg-indigo-50 py-3 rounded-2xl text-indigo-600 text-[10px] font-bold uppercase btn-press">
+                        <i class="fas fa-download mr-2"></i> Simpan QR HD
+                    </button>`;
+                document.getElementById('qr-results-list').prepend(card);
+                
+                // Buat QR Code Kualitas HD (1000px)
+                new QRCode(document.getElementById(id), {
+                    text: `ABSEN-${nim}-${nama}`,
+                    width: 1000, 
+                    height: 1000,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+                
+                e.target.reset();
+                fetchDataFromSheets();
+            } catch (err) {
+                alert("Gagal registrasi!");
+            }
+        };
+
+        // Download QR HD
+        function downloadQR(id, nim) {
+            const container = document.getElementById(id);
+            const canvas = container.querySelector('canvas');
+            const dataUrl = canvas.toDataURL("image/png");
+            
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `QR_ABSEN_${nim}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // Fetch Data Rekap
+        async function fetchDataFromSheets() {
+            try {
+                const res = await fetch(scriptURL + '?action=read');
+                students = await res.json();
+                renderRecap();
+            } catch (e) { console.error("Gagal mengambil data"); }
+        }
+
+        function renderRecap() {
+            const list = document.getElementById('recap-list');
+            list.innerHTML = '';
+            students.forEach((s) => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-4 rounded-[24px] shadow-sm border border-slate-50 flex items-center justify-between";
+                card.innerHTML = `
+                    <div>
+                        <h4 class="text-sm font-bold text-slate-800">${s.nama}</h4>
+                        <p class="text-[10px] text-slate-400">${s.nim}</p>
+                    </div>
+                    <div class="bg-indigo-50 px-4 py-2 rounded-xl font-bold text-indigo-600 text-xs">
+                        ${s.hadir || 0} Hadir
+                    </div>`;
+                list.appendChild(card);
+            });
+        }
+
+        // Inisialisasi
+        window.onload = () => { 
+            updateClock(); 
+            fetchDataFromSheets(); 
+            startScanner(); // Default buka scanner
+        };
+    </script>
+</body>
+</html>
